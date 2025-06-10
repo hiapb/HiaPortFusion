@@ -110,9 +110,10 @@ listen = "0.0.0.0:$PORT"
 remote = "$TARGET"
 protocol = "udp"
 EOF
-        nohup $REALM_BIN -c "$CFG" --tag "realm-combo-$PORT" >> "$REALM_LOG" 2>&1 &
+        nohup $REALM_BIN -c "$CFG" >> "$REALM_LOG" 2>&1 &
     done < "$RULES_FILE"
 }
+
 function reload_all() { restart_haproxy; start_realm_udps; }
 function add_rule() {
     echo -ne "${GREEN}请输入本机监听端口:${RESET} "
