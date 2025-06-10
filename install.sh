@@ -26,15 +26,18 @@ touch "$RULES_FILE" "$GOST_LOG" "$HAPROXY_LOG"
 function install_gost() {
     arch=$(uname -m)
     case $arch in
-        x86_64|amd64)   GOST_URL="https://github.com/go-gost/gost/releases/download/v3.0.0/gost-linux-amd64-3.0.0.gz" ;;
-        armv7l)         GOST_URL="https://github.com/go-gost/gost/releases/download/v3.0.0/gost-linux-arm-3.0.0.gz" ;;
-        aarch64|arm64)  GOST_URL="https://github.com/go-gost/gost/releases/download/v3.0.0/gost-linux-arm64-3.0.0.gz" ;;
-        *) echo -e "${RED}不支持的架构: $arch${RESET}"; exit 1 ;;
+        x86_64|amd64)   GOST_URL="https://github.com/go-gost/gost/releases/download/v3.0.0/gost_3.0.0_linux_amd64.tar.gz" ;;
+        aarch64|arm64)  GOST_URL="https://github.com/go-gost/gost/releases/download/v3.0.0/gost_3.0.0_linux_arm64.tar.gz" ;;
+        *)
+            echo -e "${RED}暂不支持的架构: $arch${RESET}"
+            exit 1
+            ;;
     esac
     TMPDIR=$(mktemp -d)
-    wget -O "$TMPDIR/gost.gz" "$GOST_URL"
-    gunzip "$TMPDIR/gost.gz"
-    install -m 755 "$TMPDIR/gost" "$GOST_BIN"
+    wget -O "$TMPDIR/gost.tar.gz" "$GOST_URL"
+    tar -xf "$TMPDIR/gost.tar.gz" -C "$TMPDIR"
+    # 二进制在 gost 目录下
+    install -m 755 "$TMPDIR/gost/gost" "$GOST_BIN"
     rm -rf "$TMPDIR"
     echo -e "${GREEN}GOST 安装完成！${RESET}"
 }
