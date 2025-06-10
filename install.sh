@@ -2,8 +2,8 @@
 set -e
 
 # ========== HiaPortFusion ==========
-# 统一入口，一键完成 TCP+UDP 聚合端口转发管理！
-# 支持高性能（HAProxy+Realm）、多端口、规则批量、自动升级和卸载。
+# 一键完成 TCP+UDP 聚合端口转发管理！
+# 支持高性能（HAProxy+Realm）、多端口、批量规则、自动升级、卸载。
 # ===================================
 
 GREEN="\e[32m"
@@ -19,7 +19,7 @@ LOG_DIR="/var/log/hipf"
 REALM_LOG="$LOG_DIR/realm.log"
 HAPROXY_LOG="$LOG_DIR/haproxy.log"
 SCRIPT_PATH="$(readlink -f "$0")"
-SCRIPT_URL="https://github.com/hiapb/HiaPortFusion/blob/main/install.sh"
+SCRIPT_URL="https://raw.githubusercontent.com/hiapb/HiaPortFusion/main/install.sh" # 请根据你的仓库实际地址修改
 REALM_LATEST_URL="https://github.com/zhboner/realm/releases/latest/download/realm-x86_64-unknown-linux-gnu.tar.gz"
 
 mkdir -p "$REALM_CFG_DIR" "$LOG_DIR"
@@ -75,7 +75,7 @@ function upgrade_hipf() {
     rm -rf "$TMPDIR"
     chmod +x "$REALM_BIN"
     systemctl restart haproxy
-    pkill -f "$REALM_BIN.*realm-combo" || true
+    pkill -f "$REALM_BIN" || true
     start_realm_udps
     echo -e "${GREEN}HiaPortFusion 及依赖已全部升级！${RESET}"
 }
@@ -84,7 +84,7 @@ function uninstall_hipf() {
     echo -e "${YELLOW}即将卸载 HiaPortFusion（含依赖、规则、日志及脚本自身），确认请按 y：${RESET}"
     read Y
     [[ "$Y" == "y" || "$Y" == "Y" ]] || exit 0
-    pkill -f "$REALM_BIN.*realm-combo" || true
+    pkill -f "$REALM_BIN" || true
     apt purge -y haproxy
     rm -rf "$REALM_CFG_DIR" "$RULES_FILE" "$LOG_DIR" "$REALM_BIN"
     rm -f "$SCRIPT_PATH"
@@ -95,7 +95,7 @@ function uninstall_hipf() {
 # =========== 端口聚合核心功能 ===========
 function restart_haproxy() { systemctl restart haproxy || true; }
 function start_realm_udps() {
-    pkill -f "$REALM_BIN.*realm-combo" || true
+    pkill -f "$REALM_BIN" || true
     while read -r line; do
         [[ -z "$line" || "$line" =~ ^# ]] && continue
         IFS=" " read -r PORT TARGET <<<"$line"
