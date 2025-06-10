@@ -1,9 +1,8 @@
 #!/bin/bash
 set -e
 
-# ========== HiaPortFusion ==========
-# 一键完成 TCP+UDP 聚合端口转发管理！
-# 支持高性能（HAProxy+Realm）、多端口、批量规则、自动升级、卸载。
+# ========== HiaPortFusion (HAProxy+GOST) ==========
+# 一键聚合 TCP (HAProxy) + UDP (GOST) 端口转发，多平台自适应！
 # ===================================
 
 GREEN="\e[32m"
@@ -12,18 +11,33 @@ YELLOW="\e[33m"
 RESET="\e[0m"
 
 HAPROXY_CFG="/etc/haproxy/haproxy.cfg"
-REALM_CFG_DIR="/etc/realm-combo"
-REALM_BIN="/usr/local/bin/realm"
+GOST_BIN="/usr/local/bin/gost"
 RULES_FILE="/etc/hipf-rules.txt"
 LOG_DIR="/var/log/hipf"
-REALM_LOG="$LOG_DIR/realm.log"
+GOST_LOG="$LOG_DIR/gost.log"
 HAPROXY_LOG="$LOG_DIR/haproxy.log"
 SCRIPT_PATH="$(readlink -f "$0")"
-SCRIPT_URL="https://raw.githubusercontent.com/hiapb/HiaPortFusion/main/install.sh" # 请根据你的仓库实际地址修改
-REALM_LATEST_URL="https://github.com/zhboner/realm/releases/latest/download/realm-x86_64-unknown-linux-gnu.tar.gz"
+SCRIPT_URL="https://raw.githubusercontent.com/hiapb/HiaPortFusion/main/install.sh"  # 请根据你的仓库地址调整
 
-mkdir -p "$REALM_CFG_DIR" "$LOG_DIR"
-touch "$RULES_FILE" "$REALM_LOG" "$HAPROXY_LOG"
+mkdir -p "$LOG_DIR"
+touch "$RULES_FILE" "$GOST_LOG" "$HAPROXY_LOG"
+
+# ======= GOST 安装函数，多平台自动适配 =======
+function install_gost() {
+    arch=$(uname -m)
+    case $arch in
+        x86_64|amd64)   GOST_URL="https://github.com/go-gost/gost/releases/download/v3.0.0/gost-linux-amd64-3.0.0.gz" ;;
+        armv7l)         GOST_URL="https://github.com/go-gost/gost/releases/download/v3.0.0/gost-linux-arm-3.0.0.gz" ;;
+        aarch64|arm64)  GOST_URL="https://github.com/go-gost/gost/releases/download/v3.0.0/gost-linux-arm64-3.0.0.gz" ;;
+        *) echo -e "${RED}不支持的架构: $arch${RESET}"; exit 1 ;;
+    esac
+    TMPDIR=$(mktemp -d)
+    wget -O "$TMPDIR/gost.gz" "$GOST_URL"
+    gunzip "$TMPDIR/gost.gz"
+    install -m 755 "$TMPDIR/gost" "$GOST_BIN"
+    rm -rf "$TMPDIR"
+    echo -e "${GREEN}GOST 安装完成！${RESET}"
+}
 
 # ======= HiaPortFusion 安装/更新/卸载 =======
 function install_hipf() {
@@ -47,13 +61,8 @@ defaults
 EOF
         systemctl restart haproxy
     fi
-    echo -e "${YELLOW}正在安装 Realm...${RESET}"
-    TMPDIR=$(mktemp -d)
-    wget -O "$TMPDIR/realm.tar.gz" "$REALM_LATEST_URL"
-    tar -xf "$TMPDIR/realm.tar.gz" -C "$TMPDIR"
-    install -m 755 "$TMPDIR/realm" "$REALM_BIN"
-    rm -rf "$TMPDIR"
-    chmod +x "$REALM_BIN"
+    echo -e "${YELLOW}正在安装 GOST...${RESET}"
+    install_gost
     echo -e "${GREEN}HiaPortFusion 安装完成！${RESET}"
 }
 
@@ -68,15 +77,10 @@ function upgrade_hipf() {
     # 升级依赖
     apt update
     apt install -y --only-upgrade haproxy
-    TMPDIR=$(mktemp -d)
-    wget -O "$TMPDIR/realm.tar.gz" "$REALM_LATEST_URL"
-    tar -xf "$TMPDIR/realm.tar.gz" -C "$TMPDIR"
-    install -m 755 "$TMPDIR/realm" "$REALM_BIN"
-    rm -rf "$TMPDIR"
-    chmod +x "$REALM_BIN"
+    install_gost
     systemctl restart haproxy
-    pkill -f "$REALM_BIN" || true
-    start_realm_udps
+    pkill -f "$GOST_BIN -L=udp" || true
+    start_gost_udps
     echo -e "${GREEN}HiaPortFusion 及依赖已全部升级！${RESET}"
 }
 
@@ -84,9 +88,9 @@ function uninstall_hipf() {
     echo -e "${YELLOW}即将卸载 HiaPortFusion（含依赖、规则、日志及脚本自身），确认请按 y：${RESET}"
     read Y
     [[ "$Y" == "y" || "$Y" == "Y" ]] || exit 0
-    pkill -f "$REALM_BIN" || true
+    pkill -f "$GOST_BIN -L=udp" || true
     apt purge -y haproxy
-    rm -rf "$REALM_CFG_DIR" "$RULES_FILE" "$LOG_DIR" "$REALM_BIN"
+    rm -rf "$RULES_FILE" "$LOG_DIR" "$GOST_BIN"
     rm -f "$SCRIPT_PATH"
     echo -e "${GREEN}已卸载 HiaPortFusion 及全部依赖。${RESET}"
     exit 0
@@ -94,27 +98,17 @@ function uninstall_hipf() {
 
 # =========== 端口聚合核心功能 ===========
 function restart_haproxy() { systemctl restart haproxy || true; }
-function start_realm_udps() {
-    pkill -f "$REALM_BIN" || true
+
+function start_gost_udps() {
+    pkill -f "$GOST_BIN -L=udp" || true
     while read -r line; do
         [[ -z "$line" || "$line" =~ ^# ]] && continue
         IFS=" " read -r PORT TARGET <<<"$line"
-        CFG="$REALM_CFG_DIR/udp-$PORT.toml"
-        cat > "$CFG" <<EOF
-[log]
-level = "info"
-output = "$REALM_LOG"
-
-[[endpoints]]
-listen = "0.0.0.0:$PORT"
-remote = "$TARGET"
-protocol = "udp"
-EOF
-        nohup $REALM_BIN -c "$CFG" >> "$REALM_LOG" 2>&1 &
+        nohup $GOST_BIN -L=udp://:$PORT/$TARGET >> "$LOG_DIR/gost-$PORT.log" 2>&1 &
     done < "$RULES_FILE"
 }
 
-function reload_all() { restart_haproxy; start_realm_udps; }
+function reload_all() { restart_haproxy; start_gost_udps; }
 function add_rule() {
     echo -ne "${GREEN}请输入本机监听端口:${RESET} "
     read PORT
@@ -141,15 +135,19 @@ function del_rule() {
     PORT=$(awk "NR==$IDX{print \$1}" "$RULES_FILE")
     sed -i "${IDX}d" "$RULES_FILE"
     sed -i "/^listen combo-$PORT\b/,/^$/d" "$HAPROXY_CFG"
-    rm -f "$REALM_CFG_DIR/udp-$PORT.toml"
+    pkill -f "$GOST_BIN -L=udp://:$PORT" || true
     reload_all
     echo -e "${GREEN}已删除端口 $PORT 的 TCP+UDP 转发规则。${RESET}"
 }
 function del_all_rules() {
+    while read -r line; do
+        [[ -z "$line" || "$line" =~ ^# ]] && continue
+        IFS=" " read -r PORT _ <<<"$line"
+        pkill -f "$GOST_BIN -L=udp://:$PORT" || true
+    done < "$RULES_FILE"
     > "$RULES_FILE"
     grep -E '^listen combo-' "$HAPROXY_CFG" | awk '{print $2}' | sed 's/combo-//' | while read port; do
         sed -i "/^listen combo-$port\b/,/^$/d" "$HAPROXY_CFG"
-        rm -f "$REALM_CFG_DIR/udp-$port.toml"
     done
     reload_all
     echo -e "${GREEN}已清空所有规则。${RESET}"
@@ -164,13 +162,13 @@ function view_rules() {
 function view_logs() {
     echo -e "${YELLOW}--- HAProxy 日志 ---${RESET}"
     tail -n 20 "$HAPROXY_LOG" 2>/dev/null || echo "(暂无日志)"
-    echo -e "${YELLOW}--- Realm 日志 ---${RESET}"
-    tail -n 20 "$REALM_LOG" 2>/dev/null || echo "(暂无日志)"
+    echo -e "${YELLOW}--- GOST UDP 日志（最新端口） ---${RESET}"
+    ls -t $LOG_DIR/gost-*.log 2>/dev/null | head -n 1 | xargs -r tail -n 20 || echo "(暂无日志)"
 }
 
 while true; do
     echo -e "${GREEN}
-=========== HiaPortFusion ===========
+=========== HiaPortFusion (HAProxy+GOST) ===========
 
   1. 安装 HiaPortFusion
   2. 更新 HiaPortFusion
