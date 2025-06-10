@@ -19,7 +19,7 @@ LOG_DIR="/var/log/hipf"
 REALM_LOG="$LOG_DIR/realm.log"
 HAPROXY_LOG="$LOG_DIR/haproxy.log"
 SCRIPT_PATH="$(readlink -f "$0")"
-SCRIPT_URL="https://raw.githubusercontent.com/你的仓库/路径/hia-port-fusion.sh"  # 替换为你自己的脚本直链
+SCRIPT_URL="https://github.com/hiapb/HiaPortFusion/blob/main/install.sh"
 REALM_LATEST_URL="https://github.com/zhboner/realm/releases/latest/download/realm-x86_64-unknown-linux-gnu.tar.gz"
 
 mkdir -p "$REALM_CFG_DIR" "$LOG_DIR"
@@ -183,7 +183,6 @@ while true; do
 
   0. 退出
 =====================================
-首次用请先执行 1 安装本体及全部依赖！
 
 ${RESET}"
     echo -ne "${GREEN}选择操作 [0-8]:${RESET} "
