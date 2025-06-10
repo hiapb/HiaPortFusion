@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-# ========== HiaPortFusion (HAProxy+GOST, IPv4/IPv6增强, 调试版) ==========
+# ========== HiaPortFusion (HAProxy+GOST, IPv4/IPv6增强) ==========
 # 支持 TCP (HAProxy) + UDP (GOST) 端口聚合，多平台自适应！
-# 每条规则独立支持 IPv4/IPv6，格式自动兼容，带详细DEBUG日志
-# ======================================================================
+# 每条规则独立支持 IPv4/IPv6，格式自动兼容
+# ================================================================
 
 GREEN="\e[32m"
 RED="\e[31m"
@@ -18,9 +18,7 @@ LOG_DIR="/var/log/hipf"
 GOST_LOG="$LOG_DIR/gost.log"
 HAPROXY_LOG="$LOG_DIR/haproxy.log"
 SCRIPT_PATH="$(readlink -f "$0")"
-SCRIPT_URL="https://raw.githubusercontent.com/hiapb/HiaPortFusion/main/install.sh"
-
-DEBUG_LOG="/tmp/gost_start_debug.log"
+SCRIPT_URL="https://raw.githubusercontent.com/hiapb/HiaPortFusion/main/install.sh"  # 记得换成你的仓库地址
 
 mkdir -p "$LOG_DIR"
 touch "$RULES_FILE" "$GOST_LOG" "$HAPROXY_LOG"
@@ -101,27 +99,18 @@ function uninstall_hipf() {
 
 # =========== 端口聚合核心功能 ===========
 
-function restart_haproxy() {
-    systemctl restart haproxy || true
-    echo "DEBUG: restart_haproxy at $(date)" >> "$DEBUG_LOG"
-}
+function restart_haproxy() { systemctl restart haproxy || true; }
 
 function start_gost_udps() {
     pkill -f "$GOST_BIN -L=udp" || true
-    echo "DEBUG: start_gost_udps at $(date)" >> "$DEBUG_LOG"
     while read -r line; do
         [[ -z "$line" || "$line" =~ ^# ]] && continue
         IFS=" " read -r PORT TARGET LISTEN_ADDR <<<"$line"
-        echo "DEBUG: 启动 GOST: $GOST_BIN -L=udp://$LISTEN_ADDR:$PORT/$TARGET" >> "$DEBUG_LOG"
         nohup $GOST_BIN -L=udp://$LISTEN_ADDR:$PORT/$TARGET >> "$LOG_DIR/gost-$PORT.log" 2>&1 &
     done < "$RULES_FILE"
 }
 
-function reload_all() {
-    echo "DEBUG: reload_all at $(date)" >> "$DEBUG_LOG"
-    restart_haproxy
-    start_gost_udps
-}
+function reload_all() { restart_haproxy; start_gost_udps; }
 
 function add_rule() {
     echo -ne "${GREEN}请输入本机监听端口:${RESET} "
@@ -155,9 +144,6 @@ listen combo-$PORT
     mode tcp
     server s1 $TARGET
 EOF
-
-    echo "DEBUG: add_rule 执行 reload_all，PORT=$PORT, TARGET=$TARGET, LISTEN_ADDR=$LISTEN_ADDR" >> "$DEBUG_LOG"
-
     reload_all
     echo -e "${GREEN}已添加：$PORT <$LISTEN_ADDR> <=> $TARGET（TCP+UDP）${RESET}"
 }
@@ -171,7 +157,6 @@ function del_rule() {
     sed -i "${IDX}d" "$RULES_FILE"
     sed -i "/^listen combo-$PORT\b/,/^$/d" "$HAPROXY_CFG"
     pkill -f "$GOST_BIN -L=udp://.*:$PORT" || true
-    echo "DEBUG: del_rule 执行 reload_all，PORT=$PORT" >> "$DEBUG_LOG"
     reload_all
     echo -e "${GREEN}已删除端口 $PORT 的 TCP+UDP 转发规则。${RESET}"
 }
@@ -186,7 +171,6 @@ function del_all_rules() {
     grep -E '^listen combo-' "$HAPROXY_CFG" | awk '{print $2}' | sed 's/combo-//' | while read port; do
         sed -i "/^listen combo-$port\b/,/^$/d" "$HAPROXY_CFG"
     done
-    echo "DEBUG: del_all_rules 执行 reload_all" >> "$DEBUG_LOG"
     reload_all
     echo -e "${GREEN}已清空所有规则。${RESET}"
 }
