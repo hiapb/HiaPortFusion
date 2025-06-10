@@ -141,4 +141,101 @@ function add_rule() {
         fi
     else
         LISTEN_ADDR="0.0.0.0"
-        TARGET=$(echo "$TARG
+        TARGET=$(echo "$TARGET" | sed 's/\[\(.*\)\]/\1/')
+    fi
+
+    sed -i "/^$PORT /d" "$RULES_FILE"
+    echo "$PORT $TARGET $LISTEN_ADDR" >> "$RULES_FILE"
+
+    sed -i "/^listen combo-$PORT\b/,/^$/d" "$HAPROXY_CFG"
+    cat >> "$HAPROXY_CFG" <<EOF
+
+listen combo-$PORT
+    bind $LISTEN_ADDR:$PORT
+    mode tcp
+    server s1 $TARGET
+EOF
+
+    echo "DEBUG: add_rule 执行 reload_all，PORT=$PORT, TARGET=$TARGET, LISTEN_ADDR=$LISTEN_ADDR" >> "$DEBUG_LOG"
+
+    reload_all
+    echo -e "${GREEN}已添加：$PORT <$LISTEN_ADDR> <=> $TARGET（TCP+UDP）${RESET}"
+}
+
+function del_rule() {
+    if [[ ! -s $RULES_FILE ]]; then echo -e "${RED}暂无规则。${RESET}"; return; fi
+    nl -w2 -s'. ' "$RULES_FILE"
+    echo -ne "${GREEN}输入要删除的序号:${RESET} "
+    read IDX
+    PORT=$(awk "NR==$IDX{print \$1}" "$RULES_FILE")
+    sed -i "${IDX}d" "$RULES_FILE"
+    sed -i "/^listen combo-$PORT\b/,/^$/d" "$HAPROXY_CFG"
+    pkill -f "$GOST_BIN -L=udp://.*:$PORT" || true
+    echo "DEBUG: del_rule 执行 reload_all，PORT=$PORT" >> "$DEBUG_LOG"
+    reload_all
+    echo -e "${GREEN}已删除端口 $PORT 的 TCP+UDP 转发规则。${RESET}"
+}
+
+function del_all_rules() {
+    while read -r line; do
+        [[ -z "$line" || "$line" =~ ^# ]] && continue
+        IFS=" " read -r PORT _ _ <<<"$line"
+        pkill -f "$GOST_BIN -L=udp://.*:$PORT" || true
+    done < "$RULES_FILE"
+    > "$RULES_FILE"
+    grep -E '^listen combo-' "$HAPROXY_CFG" | awk '{print $2}' | sed 's/combo-//' | while read port; do
+        sed -i "/^listen combo-$port\b/,/^$/d" "$HAPROXY_CFG"
+    done
+    echo "DEBUG: del_all_rules 执行 reload_all" >> "$DEBUG_LOG"
+    reload_all
+    echo -e "${GREEN}已清空所有规则。${RESET}"
+}
+
+function view_rules() {
+    if [[ ! -s $RULES_FILE ]]; then
+        echo -e "${RED}暂无转发规则。${RESET}"
+    else
+        nl -w2 -s'. ' "$RULES_FILE"
+    fi
+}
+
+function view_logs() {
+    echo -e "${YELLOW}--- HAProxy 日志 ---${RESET}"
+    tail -n 20 "$HAPROXY_LOG" 2>/dev/null || echo "(暂无日志)"
+    echo -e "${YELLOW}--- GOST UDP 日志（最新端口） ---${RESET}"
+    ls -t $LOG_DIR/gost-*.log 2>/dev/null | head -n 1 | xargs -r tail -n 20 || echo "(暂无日志)"
+}
+
+while true; do
+    echo -e "${GREEN}
+=========== HiaPortFusion (HAProxy+GOST, IPv4/IPv6) ===========
+
+  1. 安装 HiaPortFusion
+  2. 更新 HiaPortFusion
+  3. 卸载 HiaPortFusion
+
+  4. 添加转发规则
+  5. 删除单条规则
+  6. 清空全部规则
+  7. 查看当前规则
+  8. 查看日志
+
+  0. 退出
+=====================================
+
+${RESET}"
+    echo -ne "${GREEN}选择操作 [0-8]:${RESET} "
+    read opt
+    case $opt in
+        1) install_hipf ;;
+        2) upgrade_hipf ;;
+        3) uninstall_hipf ;;
+        4) add_rule ;;
+        5) del_rule ;;
+        6) del_all_rules ;;
+        7) view_rules ;;
+        8) view_logs ;;
+        0) exit 0 ;;
+        *) ;;
+    esac
+done
