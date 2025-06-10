@@ -36,8 +36,7 @@ function install_gost() {
     TMPDIR=$(mktemp -d)
     wget -O "$TMPDIR/gost.tar.gz" "$GOST_URL"
     tar -xf "$TMPDIR/gost.tar.gz" -C "$TMPDIR"
-    # 二进制在 gost 目录下
-    install -m 755 "$TMPDIR/gost/gost" "$GOST_BIN"
+    install -m 755 "$TMPDIR/gost" "$GOST_BIN"
     rm -rf "$TMPDIR"
     echo -e "${GREEN}GOST 安装完成！${RESET}"
 }
